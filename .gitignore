@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments
+.venv/
+.env
+
+# Large experiment artifacts
+data/raw/**
+!data/raw/.gitkeep
+data/lists/**
+!data/lists/.gitkeep
+*.bak_*
+data/features/**
+!data/features/.gitkeep
+data/context_labels/**
+!data/context_labels/.gitkeep
+logs/**
+!logs/.gitkeep
+experiments/**
+!experiments/.gitkeep
+checkpoints/
+outputs/
+wandb/
+
+# Editors
+.vscode/
+.idea/

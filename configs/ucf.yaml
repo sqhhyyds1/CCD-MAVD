@@ -1,0 +1,6 @@
+dataset: ucf_crime
+modalities: [rgb]
+context_source: clip_kmeans
+metric_primary: frame_auc
+segments: 32
+topk: 3

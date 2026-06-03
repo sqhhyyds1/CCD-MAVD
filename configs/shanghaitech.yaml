@@ -1,0 +1,6 @@
+dataset: shanghaitech_weak
+modalities: [rgb, flow]
+context_source: scene_id
+metric_primary: frame_auc
+segments: 32
+topk: 3

@@ -1,0 +1,6 @@
+dataset: xd_violence
+modalities: [rgb, flow, audio]
+context_source: clip_kmeans
+metric_primary: frame_ap
+segments: 32
+topk: 3
