@@ -25,7 +25,7 @@ import yaml
 from ccd_mavd.data.xd_violence import XDFeatureDataset
 from ccd_mavd.evaluation.metrics import frame_average_precision
 from ccd_mavd.evaluation.score_to_frame import interpolate_scores_to_frames
-from ccd_mavd.losses import mil_bce_loss, smoothness_loss, sparsity_loss, topk_video_logits
+from ccd_mavd.losses import mil_bce_loss, pairwise_topk_ranking_loss, smoothness_loss, sparsity_loss
 from ccd_mavd.models import MILBaseline
 from ccd_mavd.utils import set_seed
 
@@ -55,7 +55,7 @@ def write_env(path: Path) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def train_a0(config: dict[str, object], config_path: Path, command: str) -> Path:
+def train_mil_stage(config: dict[str, object], config_path: Path, command: str) -> Path:
     set_seed(int(config.get("seed", 0)))
     repo = Path.cwd()
     output_root = repo / str(config.get("output_root", "experiments/xd_violence"))
@@ -74,6 +74,7 @@ def train_a0(config: dict[str, object], config_path: Path, command: str) -> Path
         split="train",
         temporal_size=int(config.get("segments", 32)),
         limit_videos=int(config["limit_train_videos"]) if config.get("limit_train_videos") is not None else None,
+        balanced_limit=bool(config.get("balanced_train_limit", False)),
     )
     test_ds = XDFeatureDataset(
         feature_root=repo / str(config["feature_root"]),
@@ -89,11 +90,13 @@ def train_a0(config: dict[str, object], config_path: Path, command: str) -> Path
         num_workers=int(config.get("num_workers", 0)),
     )
     dim_sample = train_ds[0]
+    modalities = tuple(config.get("modalities", ["rgb", "flow", "audio"]))
     model = MILBaseline(
         rgb_dim=int(dim_sample["rgb"].shape[-1]),
         flow_dim=int(dim_sample["flow"].shape[-1]),
         audio_dim=int(dim_sample["audio"].shape[-1]),
         hidden_dim=int(config.get("hidden_dim", 256)),
+        modalities=modalities,
     ).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -106,13 +109,31 @@ def train_a0(config: dict[str, object], config_path: Path, command: str) -> Path
     for epoch in range(1, int(config.get("epochs", 1)) + 1):
         model.train()
         losses = []
+        mil_losses = []
+        ranking_losses = []
+        rank_valid_batches = 0
+        rank_skipped_batches = 0
         for batch in train_loader:
             rgb = batch["rgb"].to(device)
             flow = batch["flow"].to(device)
             audio = batch["audio"].to(device)
             labels = batch["video_label"].to(device)
             logits = model(rgb, flow, audio)
-            loss = mil_bce_loss(logits, labels, k=int(config.get("topk", 3)))
+            loss_mil = mil_bce_loss(logits, labels, k=int(config.get("topk", 3)))
+            has_positive = bool(torch.any(labels > 0.5).item())
+            has_negative = bool(torch.any(labels <= 0.5).item())
+            if has_positive and has_negative:
+                loss_rank = pairwise_topk_ranking_loss(
+                    logits,
+                    labels,
+                    k=int(config.get("topk", 3)),
+                    margin=float(config.get("rank_margin", 1.0)),
+                )
+                rank_valid_batches += 1
+            else:
+                loss_rank = logits.new_tensor(0.0)
+                rank_skipped_batches += 1
+            loss = loss_mil + float(config.get("lambda_rank", 0.0)) * loss_rank
             if float(config.get("lambda_smooth", 0.0)):
                 loss = loss + float(config["lambda_smooth"]) * smoothness_loss(logits)
             if float(config.get("lambda_sparse", 0.0)):
@@ -121,11 +142,17 @@ def train_a0(config: dict[str, object], config_path: Path, command: str) -> Path
             loss.backward()
             optimizer.step()
             losses.append(float(loss.detach().cpu()))
+            mil_losses.append(float(loss_mil.detach().cpu()))
+            ranking_losses.append(float(loss_rank.detach().cpu()))
         eval_result = evaluate(model, test_ds, device, k=int(config.get("topk", 3)))
         row = {
             "epoch": epoch,
             "loss_total": float(np.mean(losses)) if losses else None,
+            "loss_mil": float(np.mean(mil_losses)) if mil_losses else None,
+            "loss_rank": float(np.mean(ranking_losses)) if ranking_losses else None,
             "val_frame_ap": eval_result["frame_ap"],
+            "rank_valid_batches": rank_valid_batches,
+            "rank_skipped_batches": rank_skipped_batches,
             "lr": optimizer.param_groups[0]["lr"],
         }
         with metrics_path.open("a", encoding="utf-8") as f:
@@ -150,11 +177,13 @@ def train_a0(config: dict[str, object], config_path: Path, command: str) -> Path
         "train_videos": len(train_ds),
         "test_videos": len(test_ds),
         "epochs": int(config.get("epochs", 1)),
+        "modalities": ",".join(modalities),
+        "lambda_rank": float(config.get("lambda_rank", 0.0)),
         "best_frame_ap": best_ap,
         "gt_used_for_training": False,
     }
     (run_dir / "reports" / "summary.md").write_text(
-        "# XD A0 MIL Tiny Summary\n\n"
+        f"# XD {config.get('stage', 'A0')} MIL Tiny Summary\n\n"
         + "\n".join(f"- {key}: {value}" for key, value in summary.items())
         + "\n",
         encoding="utf-8",
@@ -202,9 +231,9 @@ def main() -> None:
     args = parser.parse_args()
     config_path = Path(args.config)
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    if config.get("stage") != "A0":
-        raise SystemExit("Only A0 MIL baseline is implemented in the first-stage runner.")
-    train_a0(config, config_path, f"{sys.executable} " + " ".join(sys.argv))
+    if config.get("stage") not in {"A0", "A1"}:
+        raise SystemExit("Only A0/A1 MIL-style stages are implemented in the first-stage runner.")
+    train_mil_stage(config, config_path, f"{sys.executable} " + " ".join(sys.argv))
 
 
 if __name__ == "__main__":

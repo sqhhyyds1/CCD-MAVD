@@ -206,6 +206,18 @@ def resample_temporal(features: np.ndarray, temporal_size: int) -> np.ndarray:
     return out
 
 
+def balanced_limited_records(records: list[XDVideoRecord], limit: int) -> list[XDVideoRecord]:
+    if limit <= 0:
+        return []
+    positives = [record for record in records if record.video_label == 1]
+    negatives = [record for record in records if record.video_label == 0]
+    if not positives or not negatives:
+        return records[:limit]
+    negative_count = limit // 2
+    positive_count = limit - negative_count
+    return positives[:positive_count] + negatives[:negative_count]
+
+
 class XDFeatureDataset(Dataset):
     def __init__(
         self,
@@ -214,10 +226,16 @@ class XDFeatureDataset(Dataset):
         split: str,
         temporal_size: int = 32,
         limit_videos: int | None = None,
+        balanced_limit: bool = False,
     ) -> None:
         self.index = XDFeatureIndex.build(feature_root=feature_root, list_root=list_root)
         records = self.index.records_for_split(split)
-        self.records = records[:limit_videos] if limit_videos is not None else records
+        if limit_videos is not None:
+            if balanced_limit and split == "train":
+                records = balanced_limited_records(records, limit_videos)
+            else:
+                records = records[:limit_videos]
+        self.records = records
         self.temporal_size = temporal_size
 
     def __len__(self) -> int:

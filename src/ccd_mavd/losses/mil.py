@@ -26,3 +26,14 @@ def smoothness_loss(snippet_logits: Tensor) -> Tensor:
 
 def sparsity_loss(snippet_logits: Tensor) -> Tensor:
     return torch.sigmoid(snippet_logits).mean()
+
+
+def pairwise_topk_ranking_loss(snippet_logits: Tensor, video_labels: Tensor, k: int, margin: float = 1.0) -> Tensor:
+    video_logits = topk_video_logits(snippet_logits, k=k)
+    labels = video_labels.float()
+    positive_logits = video_logits[labels > 0.5]
+    negative_logits = video_logits[labels <= 0.5]
+    if positive_logits.numel() == 0 or negative_logits.numel() == 0:
+        return snippet_logits.new_tensor(0.0)
+    violations = float(margin) - positive_logits[:, None] + negative_logits[None, :]
+    return F.relu(violations).mean()

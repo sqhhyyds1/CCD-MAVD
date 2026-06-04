@@ -21,3 +21,16 @@ def test_mil_baseline_uses_explicit_feature_dims():
     )
 
     assert logits.shape == (2, 7)
+
+
+def test_mil_baseline_can_select_rgb_flow_only_inputs():
+    model = MILBaseline(rgb_dim=4, flow_dim=3, audio_dim=2, hidden_dim=5, modalities=('rgb', 'flow'))
+
+    logits = model(
+        rgb=torch.zeros(2, 7, 4),
+        flow=torch.zeros(2, 7, 3),
+        audio=torch.zeros(2, 7, 2),
+    )
+
+    assert logits.shape == (2, 7)
+    assert model.input_dim == 7

@@ -39,3 +39,19 @@ def test_xd_dataset_returns_resampled_multimodal_sample():
     assert sample['modality_mask'].tolist() == [1.0, 1.0, 1.0]
     assert sample['video_label'].item() in (0, 1)
     assert isinstance(sample['video_id'], str)
+
+
+def test_xd_train_balanced_limit_keeps_positive_and_negative_bags():
+    dataset = XDFeatureDataset(
+        feature_root=ROOT / 'data/features/xd_violence',
+        list_root=ROOT / 'data/lists/xd_violence',
+        split='train',
+        temporal_size=32,
+        limit_videos=16,
+        balanced_limit=True,
+    )
+
+    labels = [record.video_label for record in dataset.records]
+
+    assert labels.count(1) == 8
+    assert labels.count(0) == 8
