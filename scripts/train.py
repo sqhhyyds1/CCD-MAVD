@@ -32,7 +32,7 @@ from ccd_mavd.data.xd_violence import (
 from ccd_mavd.evaluation.metrics import frame_average_precision
 from ccd_mavd.evaluation.score_to_frame import interpolate_scores_to_frames
 from ccd_mavd.losses import mil_bce_loss, pairwise_topk_ranking_loss, smoothness_loss, sparsity_loss
-from ccd_mavd.models import MILBaseline
+from ccd_mavd.models import MILBaseline, ProjectorConcatBaseline
 from ccd_mavd.utils import set_seed
 
 
@@ -49,6 +49,12 @@ def unique_run_dir(output_root: Path, run_name: str) -> Path:
 def score_metrics_from_eval(eval_result: dict[str, object], frame_ap_best: float | None, video_score_k: int = 1) -> dict[str, float | None]:
     snippet_scores = np.asarray(eval_result["snippet_scores"], dtype=np.float32)
     video_labels = np.asarray(eval_result["video_labels"], dtype=np.float32)
+    projector_norms = eval_result.get("projector_norms", {})
+    modality_availability = eval_result.get("modality_availability", {})
+    aux_metrics: dict[str, float | None] = {}
+    for name in ("rgb", "flow", "audio"):
+        aux_metrics[f"projector_norm_{name}_mean"] = _mean_optional(projector_norms.get(name)) if isinstance(projector_norms, dict) else None
+        aux_metrics[f"modality_availability_{name}"] = _mean_optional(modality_availability.get(name)) if isinstance(modality_availability, dict) else None
     if snippet_scores.size == 0:
         return {
             "frame_ap_last": eval_result["frame_ap"],
@@ -59,6 +65,7 @@ def score_metrics_from_eval(eval_result: dict[str, object], frame_ap_best: float
             "score_std": None,
             "score_min": None,
             "score_max": None,
+            **aux_metrics,
         }
     k_eff = max(1, min(int(video_score_k), snippet_scores.shape[1]))
     video_scores = np.sort(snippet_scores, axis=1)[:, -k_eff:].mean(axis=1)
@@ -73,6 +80,7 @@ def score_metrics_from_eval(eval_result: dict[str, object], frame_ap_best: float
         "score_std": float(snippet_scores.std()),
         "score_min": float(snippet_scores.min()),
         "score_max": float(snippet_scores.max()),
+        **aux_metrics,
     }
 
 
@@ -98,6 +106,55 @@ def resolve_subset_manifest(config: dict[str, object], repo: Path, run_dir: Path
         save_subset_manifest(manifest, manifest_path)
     save_subset_manifest(manifest, run_dir / "subset_manifest.json")
     return manifest
+
+
+def build_model(config: dict[str, object], dim_sample: dict[str, object]) -> torch.nn.Module:
+    modalities = tuple(config.get("modalities", ["rgb", "flow", "audio"]))
+    model_name = str(config.get("model", "mil_baseline"))
+    dims = {
+        "rgb_dim": int(dim_sample["rgb"].shape[-1]),
+        "flow_dim": int(dim_sample["flow"].shape[-1]),
+        "audio_dim": int(dim_sample["audio"].shape[-1]),
+    }
+    if model_name == "mil_baseline":
+        return MILBaseline(
+            **dims,
+            hidden_dim=int(config.get("hidden_dim", 256)),
+            modalities=modalities,
+        )
+    if model_name == "projector_concat":
+        return ProjectorConcatBaseline(
+            **dims,
+            projector_dim=int(config.get("projector_dim", 256)),
+            hidden_dim=int(config.get("hidden_dim", 256)),
+            modalities=modalities,
+            dropout=float(config.get("dropout", 0.1)),
+        )
+    raise ValueError(f"unknown model: {model_name}")
+
+
+def forward_model(
+    model: torch.nn.Module,
+    rgb: torch.Tensor,
+    flow: torch.Tensor,
+    audio: torch.Tensor,
+    modality_mask: torch.Tensor | None = None,
+    with_aux: bool = False,
+) -> tuple[torch.Tensor, dict[str, object] | None]:
+    if with_aux and hasattr(model, "forward_with_aux"):
+        logits, aux = model.forward_with_aux(rgb, flow, audio, modality_mask=modality_mask)
+        return logits, aux
+    if hasattr(model, "forward_with_aux"):
+        logits, _ = model.forward_with_aux(rgb, flow, audio, modality_mask=modality_mask)
+        return logits, None
+    return model(rgb, flow, audio), None
+
+
+def _mean_optional(values: object) -> float | None:
+    if values is None:
+        return None
+    arr = np.asarray(values, dtype=np.float32)
+    return float(arr.mean()) if arr.size else None
 
 
 def write_env(path: Path) -> None:
@@ -159,13 +216,7 @@ def train_mil_stage(config: dict[str, object], config_path: Path, command: str) 
     )
     dim_sample = train_ds[0]
     modalities = tuple(config.get("modalities", ["rgb", "flow", "audio"]))
-    model = MILBaseline(
-        rgb_dim=int(dim_sample["rgb"].shape[-1]),
-        flow_dim=int(dim_sample["flow"].shape[-1]),
-        audio_dim=int(dim_sample["audio"].shape[-1]),
-        hidden_dim=int(config.get("hidden_dim", 256)),
-        modalities=modalities,
-    ).to(device)
+    model = build_model(config, dim_sample).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=float(config.get("lr", 3e-4)),
@@ -186,7 +237,8 @@ def train_mil_stage(config: dict[str, object], config_path: Path, command: str) 
             flow = batch["flow"].to(device)
             audio = batch["audio"].to(device)
             labels = batch["video_label"].to(device)
-            logits = model(rgb, flow, audio)
+            modality_mask = batch["modality_mask"].to(device)
+            logits, _ = forward_model(model, rgb, flow, audio, modality_mask=modality_mask)
             loss_mil = mil_bce_loss(logits, labels, k=int(config.get("topk", 3)))
             has_positive = bool(torch.any(labels > 0.5).item())
             has_negative = bool(torch.any(labels <= 0.5).item())
@@ -275,13 +327,21 @@ def evaluate(model: MILBaseline, dataset: XDFeatureDataset, device: torch.device
     snippet_scores = []
     frame_scores = []
     video_labels = []
+    projector_norms: dict[str, list[np.ndarray]] = {}
+    modality_availability: dict[str, list[np.ndarray]] = {}
     records = dataset.records
     for i in range(len(dataset)):
         sample = dataset[i]
         rgb = sample["rgb"].unsqueeze(0).to(device)
         flow = sample["flow"].unsqueeze(0).to(device)
         audio = sample["audio"].unsqueeze(0).to(device)
-        logits = model(rgb, flow, audio)
+        modality_mask = sample["modality_mask"].unsqueeze(0).to(device)
+        logits, aux = forward_model(model, rgb, flow, audio, modality_mask=modality_mask, with_aux=True)
+        if aux:
+            for name, values in aux.get("projector_norms", {}).items():
+                projector_norms.setdefault(name, []).append(values.detach().cpu().reshape(-1).numpy())
+            for name, values in aux.get("modality_availability", {}).items():
+                modality_availability.setdefault(name, []).append(values.detach().cpu().reshape(-1).numpy())
         scores = torch.sigmoid(logits).squeeze(0).detach().cpu().numpy().astype(np.float32)
         record = records[i]
         video_ids.append(record.video_id)
@@ -298,6 +358,8 @@ def evaluate(model: MILBaseline, dataset: XDFeatureDataset, device: torch.device
         "video_labels": np.asarray(video_labels, dtype=np.float32),
         "frame_labels": frame_labels,
         "frame_ap": frame_ap,
+        "projector_norms": {name: np.concatenate(chunks) for name, chunks in projector_norms.items()},
+        "modality_availability": {name: np.concatenate(chunks) for name, chunks in modality_availability.items()},
     }
 
 
@@ -307,8 +369,8 @@ def main() -> None:
     args = parser.parse_args()
     config_path = Path(args.config)
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    if config.get("stage") not in {"A0", "A1"}:
-        raise SystemExit("Only A0/A1 MIL-style stages are implemented in the first-stage runner.")
+    if config.get("stage") not in {"A0", "A1", "A2a", "A2b"}:
+        raise SystemExit("Only A0/A1/A2a/A2b MIL-style stages are implemented in this runner.")
     train_mil_stage(config, config_path, f"{sys.executable} " + " ".join(sys.argv))
 
 
