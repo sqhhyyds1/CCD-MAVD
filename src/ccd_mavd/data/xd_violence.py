@@ -34,7 +34,9 @@ class XDVideoRecord:
 
 def label_from_video_id(video_id: str) -> tuple[str, int]:
     match = LABEL_RE.search(video_id)
-    label_text = match.group("label") if match else "UNKNOWN"
+    if not match:
+        raise ValueError(f"Cannot parse XD label from video id: {video_id}")
+    label_text = match.group("label")
     return label_text, 0 if label_text == "A" else 1
 
 

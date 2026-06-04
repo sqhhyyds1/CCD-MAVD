@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from ccd_mavd.data.xd_violence import (
     XDFeatureDataset,
     XDFeatureIndex,
     build_balanced_subset_manifest,
+    label_from_video_id,
     load_subset_manifest,
     records_by_video_ids,
     save_subset_manifest,
@@ -92,3 +95,8 @@ def test_balanced_subset_manifest_saves_ids_and_label_counts(tmp_path):
 
     test_records = records_by_video_ids(index.test_videos, loaded['test_video_ids'])
     assert {record.video_label for record in test_records} == {0, 1}
+
+
+def test_label_from_video_id_rejects_unparseable_label():
+    with pytest.raises(ValueError, match='Cannot parse XD label'):
+        label_from_video_id('video_without_target_token')
