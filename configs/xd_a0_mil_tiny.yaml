@@ -1,0 +1,21 @@
+dataset: xd_violence
+run_name: xd_a0_mil_tiny_seed0
+stage: A0
+model: mil_baseline
+feature_root: data/features/xd_violence
+list_root: data/lists/xd_violence
+output_root: experiments/xd_violence
+modalities: [rgb, flow, audio]
+metric_primary: frame_ap
+segments: 32
+topk: 3
+seed: 0
+epochs: 2
+batch_size: 4
+lr: 0.0003
+weight_decay: 0.0001
+lambda_smooth: 0.0
+lambda_sparse: 0.0
+limit_train_videos: 16
+limit_test_videos: 8
+num_workers: 0

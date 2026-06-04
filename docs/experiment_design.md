@@ -8,22 +8,24 @@
 - Verification status: DESIGN_VERIFIED, RESULTS_UNVERIFIED
 - Result boundary: this document defines the experiment; it does not report experimental results.
 - Revision scope: dataset availability is assumed for XD-Violence（暴力检测数据集）, ShanghaiTech（上海科技大学校园异常检测数据集）, and UCF-Crime（犯罪异常检测数据集）; upload/staging status is not treated as a methodological limitation.
+- Reporting gate for assumed datasets: dataset availability is assumed for final study design only. A dataset enters reported experiments only after M0 protocol audit confirms feature tensors, video labels, official split or declared split, frame counts, frame-level annotations when required, modality availability, and score-to-frame metric compatibility.
 - Required wording boundary: use `causal-inspired context debiasing`（因果启发的上下文去偏）, not strict `causal identification`（因果识别）.
+
 
 
 ## 1. Research Objective
 
-CCD-MAVD aims to test whether a lightweight, dataset-aware multimodal weakly supervised VAD（视频异常检测） framework can improve robustness beyond pure feature fusion by separating event evidence from visual context shortcuts.
+CCD-MAVD aims to test whether a lightweight, supervision-regime-aware multimodal VAD（视频异常检测） framework can improve robustness beyond pure feature fusion by learning an event-focused representation with explicit suppression of visual context leakage.
 
 The central research question is:
 
-> In weakly supervised multimodal video anomaly or violence detection, can an alignment-first event branch plus visual context debiasing improve detection and cross-scene robustness without adding a heavy fusion Transformer（融合 Transformer）?
+> Across weakly supervised multimodal VAD and normal-only scene diagnostic VAD, can an alignment-first event branch, regularized against visual context leakage, improve detection and cross-scene robustness without adding a heavy fusion Transformer（融合 Transformer）?
 
-The experiment plan assumes the three target datasets are available when each stage is executed:
+The experiment plan assumes the target datasets are available when each stage is executed, but reported experiments still require M0 protocol audit before entering result tables:
 
-- XD-Violence（暴力检测数据集） is the main multimodal benchmark using RGB（视觉外观）, Flow（光流）, and Audio（音频） features.
-- ShanghaiTech（上海科技大学校园异常检测数据集） is the scene/context benchmark using visual features and scene identifiers or documented scene proxies.
-- UCF-Crime（犯罪异常检测数据集） is the weak-supervised generalization benchmark using RGB-first and optional Flow（光流） features.
+- XD-Violence（暴力检测数据集） is the main weakly supervised multimodal benchmark using RGB（视觉外观）, Flow（光流）, and Audio（音频） features.
+- ShanghaiTech（上海科技大学校园异常检测数据集） is used under two strictly separated protocols: ShanghaiTech-Diag for context diagnostics and ShanghaiTech-WSVAD for comparable weakly supervised VAD evaluation when the standard split and frame-level labels are staged and audited.
+- UCF-Crime（犯罪异常检测数据集） is reserved as a full-extension benchmark only if XD-Violence and ShanghaiTech diagnostics provide positive evidence. It is not a first-stage paper-readiness requirement.
 
 Dataset upload or local staging status is an engineering logistics item, not a design limitation. The experiment design should judge protocol compatibility, feature/annotation schemas, and evaluation fairness, not whether a dataset is currently present on disk.
 
@@ -40,6 +42,7 @@ Dataset upload or local staging status is an engineering logistics item, not a d
 - Barlow Twins（冗余降低自监督学习） motivates correlation-reduction objectives; CCD-MAVD uses a simpler orthogonal/covariance penalty as an engineering-friendly event/context decorrelation regularizer. Source: [Barlow Twins arXiv](https://arxiv.org/abs/2103.03230).
 
 
+
 ### 2.2 Design Inferences
 
 These are design choices, not established dataset facts:
@@ -48,8 +51,8 @@ These are design choices, not established dataset facts:
 - Context debiasing（上下文去偏） is causal-inspired because the datasets do not provide interventions, randomized contexts, or a validated causal graph.
 - Expected ablation（消融实验） gains are hypotheses; they must not be written as results until experiments are run.
 - Dataset availability is assumed for planning; the methodological question is whether each run uses the correct official split, modality set, annotation granularity, and frame-level metric protocol.
-- ShanghaiTech（上海科技大学校园异常检测数据集） must be reported under the exact protocol used in the run. If a normal-only diagnostic split is used, call it a diagnostic stage; if the weakly supervised 238/199 split is used, report it separately as the comparable weak-supervised setting.
-
+- A dataset enters reported experiments only after M0 protocol audit confirms feature tensors, video labels, split definition, frame counts, required frame-level annotations, modality availability, and score-to-frame compatibility.
+- ShanghaiTech-Diag（上海科技大学诊断协议） and ShanghaiTech-WSVAD（上海科技大学弱监督视频异常检测协议） must be reported as separate protocols, tables, metrics, and claims. Normal-only diagnostic results must not be described as comparable weakly supervised leaderboard results.
 
 ## 3. Current Server Data Layout
 
@@ -80,13 +83,16 @@ Verified copied sizes in the current snapshot:
 The raw videos/frames（原始视频/帧） and unrelated archive files were intentionally not copied in this snapshot. If a later stage needs UCF-Crime（犯罪异常检测数据集） or raw-frame CLIP（图文对比预训练模型） extraction, upload/staging should be handled as routine infrastructure work and documented in the run manifest.
 
 
+
 ## 4. Dataset Protocols
 
-| Dataset | Role | Assumption | Modalities（模态） | Context source（上下文来源） | Primary metric（主指标） | Protocol note |
+| Dataset / Protocol | Role | Assumption | Modalities（模态） | Context source（上下文来源） | Primary metric（主指标） | Protocol note |
 |---|---|---|---|---|---|---|
-| XD-Violence | Main multimodal benchmark | Available for final runs | RGB + Flow + Audio | CLIP/KMeans pseudo context（伪上下文） or feature-cluster context（特征聚类上下文） | frame-level AP（帧级平均精度） | Use official feature-style setup; compare against XD multimodal baselines with matched modalities. |
-| ShanghaiTech | Scene/context diagnostic and weak-supervised benchmark | Available for final runs | I3D + CLIP-derived views, or the official feature protocol used by the baseline | scene ids when present; otherwise documented audit_scene_proxy（审计场景代理） | frame-level ROC-AUC（帧级受试者工作特征曲线下面积） | Report normal-only diagnostic and weak-supervised split results as separate protocols. |
-| UCF-Crime | Weak-supervised generalization benchmark | Available for final runs | RGB first, Flow optional | CLIP/KMeans latent context（潜在上下文） or documented scene proxy | frame-level ROC-AUC（帧级受试者工作特征曲线下面积） | Use shared modalities for cross-dataset comparisons; do not mix multimodal XD gains with RGB-only UCF claims. |
+| XD-Violence | Main weakly supervised multimodal benchmark | Available for final runs after M0 audit | RGB + Flow + Audio | CLIP/KMeans pseudo context（伪上下文） or feature-cluster context（特征聚类上下文） | frame-level AP（帧级平均精度） | Use official feature-style setup; compare against XD multimodal baselines with matched modalities. |
+| ShanghaiTech-Diag | Scene/context diagnostic protocol | Available when staged features contain valid labels/metadata for diagnostics | I3D + CLIP-derived views, or documented visual features | scene ids if present; otherwise documented audit_scene_proxy（审计场景代理） | context leakage probes（上下文泄漏探针）, per-scene diagnostics（逐场景诊断）; frame-level ROC-AUC only if abnormal frame labels exist | Diagnostic only; do not claim weakly supervised SOTA（当前最佳） or comparability with RTFM/CoMo. |
+| ShanghaiTech-WSVAD | Comparable weakly supervised VAD benchmark | Available only after standard weakly supervised split and frame-level labels are staged/audited | Official visual feature protocol used by compared baselines | official scene ids or documented scene proxies | frame-level ROC-AUC（帧级受试者工作特征曲线下面积） | Report separately from ShanghaiTech-Diag. Only this protocol can enter comparable WSVAD（弱监督视频异常检测） main tables. |
+| UCF-Crime | Optional full-extension weakly supervised generalization benchmark | Run only after XD/ShanghaiTech provide positive evidence and M0 audit passes | RGB first, Flow optional | CLIP/KMeans latent context（潜在上下文） or documented scene proxy | frame-level ROC-AUC（帧级受试者工作特征曲线下面积） | Use shared modalities for cross-dataset comparisons; report separately from XD multimodal gains. |
+
 
 ## 5. Experimental Hypotheses
 
@@ -94,11 +100,12 @@ H1. Alignment-first multimodal event modeling improves XD-Violence AP（平均�
 
 H2. Mask-aware gated fusion（掩码感知门控融合） improves robustness to missing or noisy modalities, especially under audio/flow dropout（模态丢弃） tests.
 
-H3. Visual context debiasing（视觉上下文去偏） via GRL（梯度反转层） and counterfactual context swap（反事实上下文交换） reduces scene shortcut（场景捷径） dependence without removing useful event evidence.
+H3. Visual context debiasing（视觉上下文去偏） via a context branch and GRL（梯度反转层） reduces context leakage in the event representation without clearly harming anomaly retention.
 
-H4. Orthogonal decorrelation（正交去相关） between event and context representations improves cross-scene stability more reliably than heavier MI（互信息） estimation in the first implementation.
+H4. Counterfactual context swap（反事实上下文交换） and orthogonal decorrelation（正交去相关） are optional regularized debiasing ablations（正则化去偏消融）; they are expected to help only if they improve both detection metrics and diagnostic probes across seeds.
 
 ## 6. Model Design
+
 
 
 ### 6.1 High-Level Architecture
@@ -121,13 +128,14 @@ Visual features
 z_t
   -> score head
   -> snippet anomaly scores
-  -> top-k MIL video score
+  -> top-k MIL video score or normal-only anomaly score
 ```
 
 The default main model keeps the anomaly score head（异常分数头） event-only: `score_t = h(z_t)`. The context representation `c_t` is used for supervision, adversarial debiasing, diagnostics, and optional ablations（消融实验）, but it does not directly enter the main score head. This avoids replacing one context shortcut（上下文捷径） path with another.
 
-Optional context-conditioned ablations（上下文条件消融） may use `score_t = h([z_t ; beta * g(c_t)])`, but these runs must be reported as ablations, not as the default debiased model.
+Main path rule: the main anomaly score head never concatenates `c_t` into the prediction input. Direct context-conditioned scoring is allowed only in explicitly named diagnostic ablations（诊断消融）.
 
+Optional context-conditioned ablations（上下文条件消融） may use `score_t = h([z_t ; beta * g(c_t)])`, but these runs must be reported as ablations, not as the default debiased model.
 
 ### 6.2 Components
 
@@ -146,6 +154,7 @@ Optional context-conditioned ablations（上下文条件消融） may use `score
 | Context classifier（上下文分类器） | pooled context representation | context label prediction | Ensure context branch is meaningful. |
 
 
+
 ### 6.3 Recommended Default Dimensions
 
 | Module | Default |
@@ -159,6 +168,20 @@ Optional context-conditioned ablations（上下文条件消融） may use `score
 | top-k（前 k 个片段） | Pilot default `k = 3`; final report must include fixed-k or ratio-k sensitivity |
 
 All input feature dimensions must be read from data or config. Do not hard-code 1024, 2048, 512, or 128 globally.
+
+### 6.4 Input Tensor Convention（输入张量约定）
+
+| Tensor | Shape | Description |
+|---|---|---|
+| `x_rgb` | `[B, T, D_rgb]` | RGB/I3D/visual appearance features after crop grouping and temporal resampling. |
+| `x_flow` | `[B, T, D_flow]` | Flow features after crop grouping and temporal resampling; treated as a derived motion modality. |
+| `x_audio` | `[B, T, D_audio]` | Audio/VGGish features, enabled for XD-Violence when available. |
+| `modality_mask` | `[B, M]` | Binary mask indicating available modalities for each sample or dataset. |
+| `video_label` | `[B]` | Video-level weak label for MIL（多实例学习） training. |
+| `context_label` | `[B]` by default | Video-level pseudo/scene/context label; snippet-level context labels are not required in the first implementation. |
+| `frame_labels` | evaluation only | Frame-level labels used only for AP/AUC（平均精度/曲线下面积） evaluation and score-to-frame expansion. |
+
+Default context labels are video-level labels. Snippet-level context labels are not required in the first implementation.
 
 ## 7. Loss Design
 
@@ -199,6 +222,7 @@ L_sparse = mean(s_t)
 Default weights: `lambda_smooth = 1e-4`, `lambda_sparse = 1e-4`.
 
 
+
 ### 7.4 Local Alignment（局部对齐）
 
 All available modalities must first be mapped onto a shared temporal grid（时间网格） of length `T = 32` for training. For modality pair `(m, n)`, use a local positive window `|u - t| <= delta` and contrast it against all snippets from the paired sequence.
@@ -218,6 +242,9 @@ Implementation rules:
 
 Apply only to available modality pairs. For ShanghaiTech without audio, use RGB/Flow or the documented visual feature pair if both are available. For single-view runs, disable this loss.
 
+Enable condition: `L_align` is enabled only when at least two temporally mappable modalities or views are available. For derived modalities such as Flow（光流）, alignment is interpreted as appearance-motion consistency rather than independent multimodal evidence. For single-view or unreliable pseudo-view runs, disable `L_align` and record the decision in config.
+
+
 ### 7.5 Context Classification and GRL（上下文分类与梯度反转）
 
 ```text
@@ -225,11 +252,27 @@ L_ctx = CE(context_classifier(avg(c_t)), context_label)
 L_adv = CE(adversary(GRL(avg(z_t))), context_label)
 ```
 
-The optimizer minimizes `L_adv`, while GRL reverses gradients into the event branch. Default weights:
+The optimizer minimizes `L_adv`, while GRL（梯度反转层） reverses gradients into the event branch. Default weights:
 
 - `lambda_ctx = 1.0`
-- `lambda_grl = 0.20`, linearly ramped from 0 after warm-up.
+- `lambda_grl_max = 0.20`
+- `warmup_epochs = 5`
+- `ramp_epochs = 10`
 
+GRL ramp schedule（梯度反转层递增日程）:
+
+```text
+lambda_grl(e) = lambda_grl_max * min(1, max(0, e - warmup_epochs) / ramp_epochs)
+```
+
+Equivalent mathematical form:
+
+```text
+lambda_grl(e) = lambda_grl_max * min(1, max(0, e - E_w) / E_r)
+E_w = 5, E_r = 10, lambda_grl_max = 0.20
+```
+
+The context classifier can be trained during warm-up with `L_ctx`, but GRL is disabled during warm-up. This lets the context branch learn a stable context signal before adversarial gradients are applied to the event branch.
 
 ### 7.6 Counterfactual Context Swap（反事实上下文交换）
 
@@ -377,19 +420,34 @@ Stage G: final evaluation.
 - Run paired bootstrap（配对自助法） for confidence intervals.
 
 
+
 ### 8.3 Warm-Up Schedule
 
 Epochs 1-5:
 
 ```text
-L_mil + L_rank + L_smooth + L_sparse + optional L_align
+L_mil + L_rank + L_smooth + L_sparse + optional L_align + L_ctx
 ```
+
+The context classifier may learn during warm-up, but GRL（梯度反转层） is disabled during warm-up.
 
 Epochs 6-50 for the default main model:
 
 ```text
 L_main, with lambda_grl ramped linearly to target value
 ```
+
+GRL ramp schedule:
+
+```text
+lambda_grl(e) = lambda_grl_max * min(1, max(0, e - warmup_epochs) / ramp_epochs)
+```
+
+Default:
+
+- `lambda_grl_max = 0.20`
+- `warmup_epochs = 5`
+- `ramp_epochs = 10`
 
 Optional late-stage ablations after epoch 20 or after validation stabilization:
 
@@ -419,16 +477,18 @@ Actions:
 - Inspect whether `scene_ids` exist inside the `.npz` files.
 - If scene ids exist, use them for context labels and cross-scene diagnostics.
 - If scene ids do not exist, parse video names or derive audit strata from metadata; mark as `audit_scene_proxy`（审计场景代理）.
-- Report the exact ShanghaiTech protocol used by each run: normal-only diagnostic, weakly supervised 238/199 split, or another documented split.
+- Report the exact ShanghaiTech protocol used by each run: ShanghaiTech-Diag（上海科技大学诊断协议）, ShanghaiTech-WSVAD（上海科技大学弱监督视频异常检测协议）, or another documented split.
+- If official scene IDs are parsed from video names, the parser must be unit-tested by manually checking at least one video from each scene. The mapping table from video id to scene id must be saved into the run manifest.
 
 ### 9.3 UCF-Crime
 
-Planned route:
+Planned route only for the full-extension stage:
 
 - Use CLIP/KMeans（CLIP 特征加 K 均值聚类） latent context or a documented scene proxy.
 - Fit pseudo-context labels on the training split only and assign held-out videos by nearest centroid.
 - Keep GRL（梯度反转层） weaker than ShanghaiTech when context labels are noisy.
 - Use RGB-only first for fair cross-dataset comparison, then add Flow（光流） if the compared baselines use it.
+- Do not run UCF-Crime as a first-stage paper-readiness requirement; reserve it for the full three-dataset extension after XD-Violence and ShanghaiTech provide positive evidence.
 
 ### 9.4 Context Quality Audit（上下文质量审计）
 
@@ -444,16 +504,29 @@ Before using pseudo-context labels as supervision, run and report the following 
 
 If `context -> anomaly` is high, treat context as a possible shortcut（捷径） and reduce claim strength. If pseudo-context looks like compression quality, source id, or anomaly class rather than scene/context, do not use it as the main debiasing label.
 
+### 9.5 Context Audit Fallback Rules（上下文审计失败回退规则）
+
+| Audit outcome | Action |
+|---|---|
+| Context clusters look like real scenes or stable visual environments | Use them for `L_ctx + L_adv`; report them as pseudo-context labels. |
+| Context clusters are strongly tied to normal/abnormal labels | Do not use them for the main debiasing claim; report them only as shortcut diagnostics. |
+| Context clusters look like anomaly categories or event semantics | Do not treat them as context labels; remove `L_ctx/L_adv` for that dataset or regenerate labels. |
+| Context clusters look like compression quality, source id, or split artifact | Do not use them for debiasing; report as dataset artifact analysis if relevant. |
+| Context clusters have unstable KMeans behavior or no interpretable visual pattern | Disable context debiasing on that dataset and fall back to V1/V2 without pseudo-context supervision. |
+
+If context quality audit fails, CCD-MAVD falls back to the strongest non-context model for that dataset and does not claim context debiasing on that dataset.
+
 
 ## 10. Evaluation Protocol
 
 ### 10.1 Metrics（指标）
 
-| Dataset | Primary metric（主指标） | Secondary metrics（辅指标） |
-|---|---|---|
-| XD-Violence | frame-level AP（帧级平均精度） | frame-level ROC-AUC（帧级曲线下面积）, modality-missing AP |
-| ShanghaiTech | frame-level ROC-AUC（帧级曲线下面积） under the declared protocol | AP（平均精度）, per-scene AUC, cross-scene retention |
-| UCF-Crime | frame-level ROC-AUC（帧级曲线下面积） | AP/PR-AUC（平均精度/精确率-召回率曲线下面积）, cross-dataset retention |
+| Dataset / Protocol | Primary metric（主指标） | Secondary metrics（辅指标） | Reporting rule |
+|---|---|---|---|
+| XD-Violence | frame-level AP（帧级平均精度） | frame-level ROC-AUC（帧级曲线下面积）, modality-missing AP | Main multimodal benchmark. |
+| ShanghaiTech-Diag | context leakage probes（上下文泄漏探针）, per-scene diagnostics（逐场景诊断） | frame-level ROC-AUC only if abnormal frame labels are available | Diagnostic only; not comparable to WSVAD（弱监督视频异常检测） leaderboards. |
+| ShanghaiTech-WSVAD | frame-level ROC-AUC（帧级曲线下面积） | AP（平均精度）, per-scene AUC, cross-scene retention | Report only after standard WSVAD split and labels are staged/audited. |
+| UCF-Crime | frame-level ROC-AUC（帧级曲线下面积） | AP/PR-AUC（平均精度/精确率-召回率曲线下面积）, cross-dataset retention | Optional full-extension benchmark after M0 audit and positive evidence on XD/ShanghaiTech. |
 
 ### 10.2 Score-to-Frame Expansion（分数到帧扩展）
 
@@ -483,6 +556,7 @@ Choose the rule before running experiments, record it in `config.yaml`, and do n
 - If CCD-MAVD uses CLIP（图文对比预训练模型） or pseudo-context labels（伪上下文标签）, include baselines with access to the same extra information but without the proposed debiasing mechanism.
 - Baseline re-runs should preserve their original optimizer, epochs, and feature protocol where feasible.
 - CCD-MAVD can use a unified AdamW（AdamW 优化器） setup, but this must be disclosed separately from baseline settings.
+- Normal-only diagnostic results must be explicitly separated from weakly supervised benchmark results.
 
 ### 10.4 Statistical Testing（统计检验）
 
@@ -494,7 +568,6 @@ Final results must include:
 - 95% confidence interval（95% 置信区间） for metric differences against the strongest fair baseline.
 
 Single-seed results are allowed only for smoke tests（冒烟测试） and preliminary ablations（初步消融）.
-
 
 ## 11. Baselines and Comparison Plan
 
@@ -537,22 +610,30 @@ If CCD-MAVD uses additional CLIP（图文对比预训练模型） frame context,
 This table should appear in the main paper if the proposed method relies on extra context information. Otherwise, reviewers may attribute gains to extra inputs rather than debiasing.
 
 
+
 ## 12. Ablation Matrix
 
-Run ablations in this order. Each row should inherit the same data split, seed, optimizer, score-to-frame expansion rule, and evaluation code.
+Run ablations in two tiers. Main ablations are required for the core CCD-MAVD claim. Diagnostic ablations are optional or appendix-level unless they become necessary for reviewer concerns.
+
+### 12.1 Main Ablations（主消融）
 
 | ID | Modules enabled | Main question |
 |---|---|---|
 | A0 | MIL-only | Is the data/metric pipeline valid? |
 | A1 | A0 + RTFM-style top-k/ranking | Does top-k ranking stabilize weak supervision? |
-| A2 | A1 + modality projectors + concat fusion | Does multimodal evidence help without gating? |
-| A3 | A1 + mask-aware gated fusion | Does gating beat concatenation? |
-| A4 | A3 + local alignment | Does alignment help multimodal temporal consistency? |
-| A5 | A4 + context branch + `L_ctx` only | Does explicit context modeling provide a meaningful diagnostic branch? |
-| A6 | A5 + GRL, event-only score head | Main debiasing model: does event representation become less context-predictive while retaining anomaly signal? |
-| A7 | A5 + direct context-conditioned score head, no GRL | Shortcut diagnostic: does direct context inflate scores? |
-| A8 | A6 + late `L_cf` | Optional: are scores stable under context replacement after warm-up? |
-| A9 | A6 + `L_orth` | Optional: does event/context leakage decrease without hurting AP/AUC? |
+| A3 | A1 + mask-aware gated fusion | Does modality-aware gating improve fusion? |
+| A4 | A3 + local alignment | Does alignment improve multimodal temporal consistency? |
+| A5 | A4 + context branch + `L_ctx` only | Does the context branch learn meaningful context without debiasing? |
+| A6 | A5 + GRL, event-only score head | Main debiasing model: does event representation reduce context leakage while retaining anomaly signal? |
+
+### 12.2 Diagnostic / Appendix Ablations（诊断或附录消融）
+
+| ID | Modules enabled | Main question |
+|---|---|---|
+| A2 | A1 + modality projectors + concat fusion | Does naive multimodal concatenation help without gating? |
+| A7 | A5 + direct context-conditioned score head, no GRL | Does direct context input create or inflate shortcuts? |
+| A8 | A6 + late `L_cf` | Are scores stable under context replacement after warm-up? |
+| A9 | A6 + `L_orth` | Does decorrelation reduce leakage without hurting AP/AUC? |
 | A10 | best stable model + modality dropout | Does robustness improve under missing modality tests? |
 
 No ablation gain should be described as a finding until the corresponding experiment log and metrics file exist. Do not promote A8/A9 to the default full model unless they improve both detection metrics and diagnostic probes across seeds.
@@ -681,26 +762,28 @@ nvidia-smi
 ```
 
 
+
 ## 16. Implementation Milestones
 
 M0. Protocol audit.
 
 - Inspect `.npy` and `.npz` feature shapes for each dataset used in the run.
-- Generate manifest files for XD-Violence, ShanghaiTech, and UCF-Crime.
-- Document official split, video-level labels, frame-level annotations, frame counts, and score-to-frame expansion（分数到帧扩展） rule.
+- Generate manifest files for XD-Violence, ShanghaiTech, and UCF-Crime when each enters the reported experiment set.
+- Document official split, declared split, video-level labels, frame-level annotations, frame counts, and score-to-frame expansion（分数到帧扩展） rule.
 - Confirm XD 5-crop features are grouped by video id before model input.
+- Confirm ShanghaiTech-Diag and ShanghaiTech-WSVAD are never mixed in the same result table.
 
 M1. Metrics and loaders.
 
 - Implement AP（平均精度） and ROC-AUC（曲线下面积） wrappers.
 - Implement deterministic score-to-frame expansion（分数到帧扩展）.
 - Implement XD feature grouping: RGB/Flow files are crop-suffixed; group `__0.npy` to `__4.npy` correctly.
-- Implement ShanghaiTech and UCF-Crime loaders under their declared protocols.
+- Implement ShanghaiTech-Diag and ShanghaiTech-WSVAD loaders under their declared protocols.
 
 M2. MIL-only baseline.
 
 - Test feature loading with a tiny subset.
-- Train one seed on each planned dataset protocol.
+- Train one seed on each planned weakly supervised dataset protocol.
 - Verify metrics file, snippet score export, and expanded frame score export.
 
 M3. RTFM-style top-k.
@@ -722,14 +805,16 @@ M5. Optional regularizers.
 
 M6. Experiments.
 
-- Run ablation ladder on XD-Violence.
-- Run ShanghaiTech diagnostic and weak-supervised protocols separately when both are used.
-- Run UCF-Crime weak-supervised and cross-dataset protocols.
+- Run the main ablation ladder on XD-Violence.
+- Run ShanghaiTech-Diag under the declared diagnostic protocol.
+- Run ShanghaiTech-WSVAD only after the standard weakly supervised split and frame-level labels are staged and audited.
+- Run UCF-Crime weakly supervised and cross-dataset protocols as the full three-dataset extension after M0 audit passes for UCF-Crime and after XD/ShanghaiTech provide positive evidence.
 
 M7. Paper tables.
 
-- Run final 5 seeds.
+- Run final 5 seeds for reported main results.
 - Generate aggregate tables and confidence intervals.
+- Keep normal-only diagnostic tables separate from weakly supervised benchmark tables.
 
 
 ## 17. Known Risks and Mitigations
@@ -737,6 +822,8 @@ M7. Paper tables.
 | Risk | Severity | Mitigation |
 |---|---|---|
 | Causal overclaim | High | Use causal-inspired wording; report assumptions and diagnostics. |
+| ShanghaiTech protocol ambiguity | High | Split ShanghaiTech-Diag and ShanghaiTech-WSVAD into separate protocols, tables, metrics, and claims. |
+| Failed pseudo-context audit | High | If context labels look like anomaly class, source id, compression artifact, or split artifact, disable context debiasing on that dataset and fall back to the strongest non-context model. |
 | Context-conditioned shortcut | High | Keep main score head event-only; direct context score head is an ablation only. |
 | Pseudo-context noise or leakage | High | Fit KMeans only on training split; run context quality audit and `c -> anomaly` probe. |
 | Score-to-frame ambiguity | High | Fix interpolation or segment-repeat rule before experiments and apply it to all methods. |
@@ -755,11 +842,13 @@ Gate 1: Protocol audit pass.
 
 - Each dataset used in the run exposes feature tensors, video labels, split ids, frame counts, and frame-level annotations through a documented loader.
 - XD RGB/Flow 5-crop files are grouped correctly before model input.
+- ShanghaiTech-Diag and ShanghaiTech-WSVAD protocol identity is explicit before any run.
 - The score-to-frame expansion（分数到帧扩展） rule is fixed and saved in config.
 
 Gate 2: Baseline pass.
 
-- MIL-only can train for at least one epoch and export snippet/frame predictions.
+- MIL-only can train for at least one epoch and export snippet/frame predictions for weakly supervised protocols.
+- The normal-only diagnostic baseline can export anomaly scores for ShanghaiTech-Diag when used.
 - Metric computation completes without shape mismatch.
 - top-k sensitivity or ratio-k choice is documented.
 
@@ -775,16 +864,26 @@ Gate 4: Diagnostic pass.
 - Frozen probes report `z -> context`, `c -> context`, `z -> anomaly`, and `c -> anomaly`.
 - Debiasing is not considered successful if anomaly retention drops sharply or context alone predicts anomaly too well.
 
-Gate 5: Experiment pass.
+Gate 5a: Minimal paper readiness.
 
-- At least one full XD run, one ShanghaiTech run under the declared protocol, and one UCF-Crime run finish.
+- XD-Violence full benchmark is complete under the declared multimodal protocol.
+- ShanghaiTech-Diag or ShanghaiTech-WSVAD is complete under a clearly declared protocol.
+- Fair-information baselines are complete for any extra CLIP/KMeans/context information used by CCD-MAVD.
+- Context quality audit and frozen probes are complete for any dataset where context debiasing is claimed.
 - Logs contain config, command, environment, metrics, score expansion rule, and checkpoint.
+
+Gate 5b: Full three-dataset readiness.
+
+- UCF-Crime weakly supervised benchmark is complete after M0 audit.
+- Cross-dataset diagnostic runs use shared modalities only.
+- Results are reported separately from XD multimodal gains.
 
 Gate 6: Paper readiness.
 
 - Main results are 5-seed mean/std.
 - Best baseline comparison is fair by dataset, modality, and information access.
 - Claims are marked as source fact, experimental finding, or design inference.
+- Any normal-only diagnostic result is explicitly separated from weakly supervised benchmark results.
 
 ## 19. Source Index
 
@@ -804,4 +903,18 @@ Gate 6: Paper readiness.
 
 ## 20. Immediate Next Step
 
-Implement M0 protocol audit first. The audit should read the declared dataset feature files, print feature keys/shapes, group XD 5-crop files by video id, document frame counts and annotation schemas, and fix the score-to-frame expansion（分数到帧扩展） rule before any long training run. This is a protocol correctness gate, not a judgment about dataset availability.
+Implement M0 protocol audit first. The audit should read the declared dataset feature files, print feature keys/shapes, group XD 5-crop files by video id, document frame counts and annotation schemas, identify whether ShanghaiTech is being used as ShanghaiTech-Diag or ShanghaiTech-WSVAD, and fix the score-to-frame expansion（分数到帧扩展） rule before any long training run. This is a protocol correctness gate, not a judgment about dataset availability.
+
+## 21. Patch Summary for v0.9
+
+This revision makes the following claim-safety changes:
+
+1. Replaces strong event/context separation wording with context leakage suppression wording.
+2. Separates ShanghaiTech-Diag from ShanghaiTech-WSVAD.
+3. Adds M0 audit as the entry gate for any reported dataset.
+4. Keeps the main anomaly score head event-only.
+5. Treats counterfactual context swap and orthogonal decorrelation as optional ablations, not default full-model components.
+6. Adds context audit fallback rules.
+7. Splits paper readiness into minimal readiness and full three-dataset readiness.
+8. Requires fair-information baselines whenever extra CLIP/KMeans/context information is used.
+9. Reserves UCF-Crime for the full-extension stage after XD-Violence and ShanghaiTech provide positive evidence.

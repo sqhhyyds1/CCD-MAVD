@@ -1,0 +1,43 @@
+{
+  "source_dir": "/home/han/CQAF-VAD/list",
+  "target_dir": "/home/han/CCD-MAVD/data/lists/xd_violence",
+  "copied_at_utc": "2026-06-04T01:17:02Z",
+  "normalization": "List files normalized to LF line endings and no trailing whitespace; gt.npy is byte-for-byte unchanged.",
+  "files": [
+    {
+      "name": "audio_test.list",
+      "size_bytes": 67993,
+      "sha256": "da3e996045abb2b988379cfd3ec21b61423d0c95194087c3c51a9f394244fc48"
+    },
+    {
+      "name": "audio_train.list",
+      "size_bytes": 334355,
+      "sha256": "86c41c4c4075004868d98e6886c60677020e591c4ef36a93ea34ad8140159927"
+    },
+    {
+      "name": "flow_test.list",
+      "size_bytes": 271965,
+      "sha256": "6bacef8a5cabb85f1535d6ec81ea423f99339eba15f0a18c544b1aefb430cac3"
+    },
+    {
+      "name": "flow_train.list",
+      "size_bytes": 1236835,
+      "sha256": "0562a6d5c58d94877f887d05c0a1c9b205e9ee907c43fd662f1ec718495a44db"
+    },
+    {
+      "name": "gt.npy",
+      "size_bytes": 9321664,
+      "sha256": "e2f9260882450e9ccabe8deaaac63a54b94558db4197f3e329125bf36e3b3863"
+    },
+    {
+      "name": "video_test.list",
+      "size_bytes": 267965,
+      "sha256": "d6274588f52efb3b1e8c16368984bd3adb638d0d34b590c38bd248e17e37299e"
+    },
+    {
+      "name": "video_train.list",
+      "size_bytes": 1217065,
+      "sha256": "d698680a2de5806bfd6832bb58051197cc237b5f9185b025d4171bc1464c534a"
+    }
+  ]
+}
