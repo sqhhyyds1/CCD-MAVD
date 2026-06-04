@@ -1,0 +1,27 @@
+dataset: xd_violence
+run_name: xd_a1_rtfm_rgb_flow_bal64_seed0
+stage: A1
+model: mil_baseline
+feature_root: data/features/xd_violence
+list_root: data/lists/xd_violence
+output_root: experiments/xd_violence
+subset_name: xd_bal64_seed0
+subset_manifest: experiments/xd_violence/subsets/xd_bal64_seed0.json
+modalities: [rgb, flow]
+metric_primary: frame_ap
+segments: 32
+topk: 3
+rank_margin: 1.0
+seed: 0
+epochs: 3
+batch_size: 16
+lr: 0.0003
+weight_decay: 0.0001
+lambda_rank: 0.1
+lambda_smooth: 0.0
+lambda_sparse: 0.0
+limit_train_videos: 64
+balanced_train_limit: true
+limit_test_videos: 64
+balanced_test_limit: true
+num_workers: 0

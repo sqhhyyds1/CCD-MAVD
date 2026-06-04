@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ccd_mavd.data.xd_violence import XDFeatureDataset, XDFeatureIndex
+from ccd_mavd.data.xd_violence import (
+    XDFeatureDataset,
+    XDFeatureIndex,
+    build_balanced_subset_manifest,
+    load_subset_manifest,
+    records_by_video_ids,
+    save_subset_manifest,
+)
 
 
 ROOT = Path('/home/han/CCD-MAVD')
@@ -55,3 +62,33 @@ def test_xd_train_balanced_limit_keeps_positive_and_negative_bags():
 
     assert labels.count(1) == 8
     assert labels.count(0) == 8
+
+
+def test_balanced_subset_manifest_saves_ids_and_label_counts(tmp_path):
+    index = XDFeatureIndex.build(
+        feature_root=ROOT / 'data/features/xd_violence',
+        list_root=ROOT / 'data/lists/xd_violence',
+    )
+
+    manifest = build_balanced_subset_manifest(
+        index=index,
+        name='xd_bal64_seed0',
+        seed=0,
+        train_limit=64,
+        test_limit=64,
+    )
+    manifest_path = tmp_path / 'xd_bal64_seed0.json'
+    save_subset_manifest(manifest, manifest_path)
+    loaded = load_subset_manifest(manifest_path)
+
+    assert loaded['name'] == 'xd_bal64_seed0'
+    assert loaded['seed'] == 0
+    assert len(loaded['train_video_ids']) == 64
+    assert len(loaded['test_video_ids']) == 64
+    assert loaded['num_train_normal'] == 32
+    assert loaded['num_train_abnormal'] == 32
+    assert loaded['num_test_normal'] == 32
+    assert loaded['num_test_abnormal'] == 32
+
+    test_records = records_by_video_ids(index.test_videos, loaded['test_video_ids'])
+    assert {record.video_label for record in test_records} == {0, 1}

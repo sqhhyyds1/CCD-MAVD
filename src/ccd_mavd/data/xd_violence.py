@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import json
+import random
 import re
 from collections import defaultdict
 from typing import Iterable
@@ -206,16 +208,88 @@ def resample_temporal(features: np.ndarray, temporal_size: int) -> np.ndarray:
     return out
 
 
-def balanced_limited_records(records: list[XDVideoRecord], limit: int) -> list[XDVideoRecord]:
+def records_by_video_ids(records: list[XDVideoRecord], video_ids: Iterable[str]) -> list[XDVideoRecord]:
+    by_id = {record.video_id: record for record in records}
+    selected: list[XDVideoRecord] = []
+    missing: list[str] = []
+    for video_id in video_ids:
+        record = by_id.get(video_id)
+        if record is None:
+            missing.append(video_id)
+        else:
+            selected.append(record)
+    if missing:
+        raise ValueError(f"unknown video ids in subset manifest: {missing[:5]}")
+    return selected
+
+
+def balanced_limited_records(records: list[XDVideoRecord], limit: int, seed: int = 0) -> list[XDVideoRecord]:
     if limit <= 0:
         return []
-    positives = [record for record in records if record.video_label == 1]
-    negatives = [record for record in records if record.video_label == 0]
-    if not positives or not negatives:
+    normal = [record for record in records if record.video_label == 0]
+    abnormal = [record for record in records if record.video_label == 1]
+    if not normal or not abnormal:
         return records[:limit]
-    negative_count = limit // 2
-    positive_count = limit - negative_count
-    return positives[:positive_count] + negatives[:negative_count]
+    normal_count = limit // 2
+    abnormal_count = limit - normal_count
+    if len(normal) < normal_count or len(abnormal) < abnormal_count:
+        raise ValueError(
+            f"not enough records for balanced subset: need {normal_count}/{abnormal_count}, "
+            f"have {len(normal)}/{len(abnormal)}"
+        )
+    rng = random.Random(int(seed))
+    normal = normal.copy()
+    abnormal = abnormal.copy()
+    rng.shuffle(normal)
+    rng.shuffle(abnormal)
+    selected = normal[:normal_count] + abnormal[:abnormal_count]
+    rng.shuffle(selected)
+    return selected
+
+
+def _count_labels(records: list[XDVideoRecord]) -> dict[str, int]:
+    return {
+        "normal": sum(1 for record in records if record.video_label == 0),
+        "abnormal": sum(1 for record in records if record.video_label == 1),
+    }
+
+
+def build_balanced_subset_manifest(
+    index: XDFeatureIndex,
+    name: str,
+    seed: int,
+    train_limit: int,
+    test_limit: int,
+) -> dict[str, object]:
+    train_records = balanced_limited_records(index.train_videos, train_limit, seed=seed)
+    test_records = balanced_limited_records(index.test_videos, test_limit, seed=seed + 1000003)
+    train_counts = _count_labels(train_records)
+    test_counts = _count_labels(test_records)
+    if test_counts["normal"] == 0 or test_counts["abnormal"] == 0:
+        raise ValueError("test subset must contain both normal and abnormal videos")
+    return {
+        "name": name,
+        "dataset": "xd_violence",
+        "seed": int(seed),
+        "selection": "balanced_video_label",
+        "train_limit": int(train_limit),
+        "test_limit": int(test_limit),
+        "num_train_normal": train_counts["normal"],
+        "num_train_abnormal": train_counts["abnormal"],
+        "num_test_normal": test_counts["normal"],
+        "num_test_abnormal": test_counts["abnormal"],
+        "train_video_ids": [record.video_id for record in train_records],
+        "test_video_ids": [record.video_id for record in test_records],
+    }
+
+
+def save_subset_manifest(manifest: dict[str, object], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def load_subset_manifest(path: Path) -> dict[str, object]:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 class XDFeatureDataset(Dataset):
@@ -227,12 +301,16 @@ class XDFeatureDataset(Dataset):
         temporal_size: int = 32,
         limit_videos: int | None = None,
         balanced_limit: bool = False,
+        balanced_seed: int = 0,
+        subset_video_ids: Iterable[str] | None = None,
     ) -> None:
         self.index = XDFeatureIndex.build(feature_root=feature_root, list_root=list_root)
         records = self.index.records_for_split(split)
-        if limit_videos is not None:
-            if balanced_limit and split == "train":
-                records = balanced_limited_records(records, limit_videos)
+        if subset_video_ids is not None:
+            records = records_by_video_ids(records, subset_video_ids)
+        elif limit_videos is not None:
+            if balanced_limit:
+                records = balanced_limited_records(records, limit_videos, seed=balanced_seed)
             else:
                 records = records[:limit_videos]
         self.records = records

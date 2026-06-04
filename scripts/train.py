@@ -22,7 +22,13 @@ import torch
 from torch.utils.data import DataLoader
 import yaml
 
-from ccd_mavd.data.xd_violence import XDFeatureDataset
+from ccd_mavd.data.xd_violence import (
+    XDFeatureDataset,
+    XDFeatureIndex,
+    build_balanced_subset_manifest,
+    load_subset_manifest,
+    save_subset_manifest,
+)
 from ccd_mavd.evaluation.metrics import frame_average_precision
 from ccd_mavd.evaluation.score_to_frame import interpolate_scores_to_frames
 from ccd_mavd.losses import mil_bce_loss, pairwise_topk_ranking_loss, smoothness_loss, sparsity_loss
@@ -38,6 +44,60 @@ def unique_run_dir(output_root: Path, run_name: str) -> Path:
         candidate = output_root / f"{run_name}_{stamp}_{counter}"
         counter += 1
     return candidate
+
+
+def score_metrics_from_eval(eval_result: dict[str, object], frame_ap_best: float | None, video_score_k: int = 1) -> dict[str, float | None]:
+    snippet_scores = np.asarray(eval_result["snippet_scores"], dtype=np.float32)
+    video_labels = np.asarray(eval_result["video_labels"], dtype=np.float32)
+    if snippet_scores.size == 0:
+        return {
+            "frame_ap_last": eval_result["frame_ap"],
+            "frame_ap_best": frame_ap_best,
+            "pos_video_score_mean": None,
+            "neg_video_score_mean": None,
+            "score_mean": None,
+            "score_std": None,
+            "score_min": None,
+            "score_max": None,
+        }
+    k_eff = max(1, min(int(video_score_k), snippet_scores.shape[1]))
+    video_scores = np.sort(snippet_scores, axis=1)[:, -k_eff:].mean(axis=1)
+    pos_scores = video_scores[video_labels > 0.5]
+    neg_scores = video_scores[video_labels <= 0.5]
+    return {
+        "frame_ap_last": eval_result["frame_ap"],
+        "frame_ap_best": frame_ap_best,
+        "pos_video_score_mean": float(pos_scores.mean()) if pos_scores.size else None,
+        "neg_video_score_mean": float(neg_scores.mean()) if neg_scores.size else None,
+        "score_mean": float(snippet_scores.mean()),
+        "score_std": float(snippet_scores.std()),
+        "score_min": float(snippet_scores.min()),
+        "score_max": float(snippet_scores.max()),
+    }
+
+
+def resolve_subset_manifest(config: dict[str, object], repo: Path, run_dir: Path) -> dict[str, object] | None:
+    manifest_config = config.get("subset_manifest")
+    if not manifest_config:
+        return None
+    manifest_path = repo / str(manifest_config)
+    if manifest_path.exists():
+        manifest = load_subset_manifest(manifest_path)
+    else:
+        index = XDFeatureIndex.build(
+            feature_root=repo / str(config["feature_root"]),
+            list_root=repo / str(config["list_root"]),
+        )
+        manifest = build_balanced_subset_manifest(
+            index=index,
+            name=str(config.get("subset_name", manifest_path.stem)),
+            seed=int(config.get("seed", 0)),
+            train_limit=int(config["limit_train_videos"]),
+            test_limit=int(config["limit_test_videos"]),
+        )
+        save_subset_manifest(manifest, manifest_path)
+    save_subset_manifest(manifest, run_dir / "subset_manifest.json")
+    return manifest
 
 
 def write_env(path: Path) -> None:
@@ -66,6 +126,9 @@ def train_mil_stage(config: dict[str, object], config_path: Path, command: str) 
     shutil.copy2(config_path, run_dir / "config.yaml")
     (run_dir / "command.txt").write_text(command + "\n", encoding="utf-8")
     write_env(run_dir / "env.txt")
+    subset_manifest = resolve_subset_manifest(config, repo, run_dir)
+    train_subset_ids = subset_manifest["train_video_ids"] if subset_manifest else None
+    test_subset_ids = subset_manifest["test_video_ids"] if subset_manifest else None
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train_ds = XDFeatureDataset(
@@ -75,6 +138,8 @@ def train_mil_stage(config: dict[str, object], config_path: Path, command: str) 
         temporal_size=int(config.get("segments", 32)),
         limit_videos=int(config["limit_train_videos"]) if config.get("limit_train_videos") is not None else None,
         balanced_limit=bool(config.get("balanced_train_limit", False)),
+        balanced_seed=int(config.get("seed", 0)),
+        subset_video_ids=train_subset_ids,
     )
     test_ds = XDFeatureDataset(
         feature_root=repo / str(config["feature_root"]),
@@ -82,6 +147,9 @@ def train_mil_stage(config: dict[str, object], config_path: Path, command: str) 
         split="test",
         temporal_size=int(config.get("segments", 32)),
         limit_videos=int(config["limit_test_videos"]) if config.get("limit_test_videos") is not None else None,
+        balanced_limit=bool(config.get("balanced_test_limit", False)),
+        balanced_seed=int(config.get("seed", 0)) + 1000003,
+        subset_video_ids=test_subset_ids,
     )
     train_loader = DataLoader(
         train_ds,
@@ -145,22 +213,29 @@ def train_mil_stage(config: dict[str, object], config_path: Path, command: str) 
             mil_losses.append(float(loss_mil.detach().cpu()))
             ranking_losses.append(float(loss_rank.detach().cpu()))
         eval_result = evaluate(model, test_ds, device, k=int(config.get("topk", 3)))
+        frame_ap_last = eval_result["frame_ap"]
+        frame_ap_best = None
+        if frame_ap_last is not None:
+            frame_ap_best = max(best_ap, float(frame_ap_last)) if best_ap >= 0 else float(frame_ap_last)
+        rank_total_batches = rank_valid_batches + rank_skipped_batches
         row = {
             "epoch": epoch,
             "loss_total": float(np.mean(losses)) if losses else None,
             "loss_mil": float(np.mean(mil_losses)) if mil_losses else None,
             "loss_rank": float(np.mean(ranking_losses)) if ranking_losses else None,
-            "val_frame_ap": eval_result["frame_ap"],
+            "val_frame_ap": frame_ap_last,
             "rank_valid_batches": rank_valid_batches,
             "rank_skipped_batches": rank_skipped_batches,
+            "rank_valid_ratio": (rank_valid_batches / rank_total_batches) if rank_total_batches else None,
             "lr": optimizer.param_groups[0]["lr"],
         }
+        row.update(score_metrics_from_eval(eval_result, frame_ap_best=frame_ap_best, video_score_k=int(config.get("topk", 3))))
         with metrics_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row) + "\n")
         train_log.append(json.dumps(row))
         torch.save({"model": model.state_dict(), "config": config, "epoch": epoch}, run_dir / "checkpoints" / "last.pt")
-        if eval_result["frame_ap"] is not None and eval_result["frame_ap"] >= best_ap:
-            best_ap = float(eval_result["frame_ap"])
+        if frame_ap_last is not None and float(frame_ap_last) >= best_ap:
+            best_ap = float(frame_ap_last)
             torch.save({"model": model.state_dict(), "config": config, "epoch": epoch}, run_dir / "checkpoints" / "best.pt")
             np.savez(
                 run_dir / "predictions" / "test_scores.npz",
@@ -181,6 +256,7 @@ def train_mil_stage(config: dict[str, object], config_path: Path, command: str) 
         "lambda_rank": float(config.get("lambda_rank", 0.0)),
         "best_frame_ap": best_ap,
         "gt_used_for_training": False,
+        "subset_manifest": str(run_dir / "subset_manifest.json") if subset_manifest else None,
     }
     (run_dir / "reports" / "summary.md").write_text(
         f"# XD {config.get('stage', 'A0')} MIL Tiny Summary\n\n"
